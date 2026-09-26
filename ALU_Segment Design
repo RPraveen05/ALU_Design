@@ -1,0 +1,129 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+
+entity ALU_Design is
+    Port ( clk : in STD_LOGIC;
+           seg : out STD_LOGIC_VECTOR (6 downto 0);
+           anode : out STD_LOGIC_VECTOR (3 downto 0);
+           Led : out STD_LOGIC_VECTOR (1 downto 0));
+end ALU_Design;
+
+architecture Behavioral of ALU_Design is
+
+signal alu_clk_divider : unsigned(25 downto 0) := (others => '0');
+signal slow_clk : std_logic := '0';
+
+signal mux_clk_div : unsigned(16 downto 0) := (others => '0');
+signal refresh_clk : std_logic_vector(1 downto 0) := "00";
+
+signal A_reg      : unsigned(3 downto 0) := "0101";
+signal B_reg      : unsigned(3 downto 0) := "0011";
+signal Op_code    : unsigned(2 downto 0) := "000";
+signal alu_result : unsigned(3 downto 0) := "0000";
+
+signal active_hex  : unsigned(3 downto 0);
+
+begin
+
+process(clk)
+    begin
+        if rising_edge(clk) then
+            if alu_clk_divider = 25000000 then
+                alu_clk_divider <= (others => '0');
+                slow_clk    <= not slow_clk;
+            else
+                alu_clk_divider <= alu_clk_divider + 1;
+            end if;
+
+            -- Display Refresh timing (Cycles through digits at ~1kHz)
+            if mux_clk_div = 100000 then
+                mux_clk_div <= (others => '0');
+                refresh_clk <= std_logic_vector(unsigned(refresh_clk) + 1);
+            else
+                mux_clk_div <= mux_clk_div + 1;
+            end if;
+        end if;
+    end process;
+
+ process(slow_clk)
+    begin
+        if rising_edge(slow_clk) then
+            Op_code <= Op_code + 1;
+            if Op_code = "111" then
+                A_reg <= A_reg + 1;
+                B_reg <= B_reg + 2;
+            end if;
+        end if;
+    end process;
+    
+  process(A_reg, B_reg, Op_code)
+        variable sum_extend : unsigned(4 downto 0);
+    begin
+        led <= "00"; -- Default values for Carry [1] and Zero [0] flags
+        case Op_code is
+            when "000" => -- ADDITION
+                sum_extend := resize(A_reg, 5) + resize(B_reg, 5);
+                alu_result <= sum_extend(3 downto 0);
+                led(1)    <= sum_extend(4); -- Carry Flag
+            when "001" => -- SUBTRACTION
+                alu_result <= A_reg - B_reg;
+                if A_reg < B_reg then led(1) <= '1'; end if; -- Borrow Flag
+            when "010" => alu_result <= A_reg and B_reg;  -- AND
+            when "011" => alu_result <= A_reg or B_reg;   -- OR
+            when "100" => alu_result <= A_reg xor B_reg;  -- XOR
+            when "101" => alu_result <= shift_left(A_reg , 1); led(1) <= A_reg(3);
+            when "110" => alu_result <= shift_right(B_reg , 1) ; led(1) <= A_reg(0);
+            when "111" => alu_result <= not A_reg;        -- NOT
+            when others => alu_result <= "0000";
+        end case;
+    end process;
+    
+    process(refresh_clk, Op_code, A_reg, B_reg, alu_result)
+    begin
+        
+        case refresh_clk is
+            when "00" =>
+                anode         <= "1110";
+                active_hex <= alu_result;
+            when "01" =>
+                anode          <= "1101";
+                active_hex <= B_reg;
+            when "10" =>
+                anode         <= "1011";
+                active_hex <= A_reg;
+            when "11" =>
+                anode          <= "0111";
+                active_hex <= resize(Op_code, 4);
+            when others =>
+                anode         <= "1111";
+                active_hex <= "0000";
+        end case;
+    end process;
+    
+    process(active_hex)
+    begin
+        -- Cathodes are Active-Low ('0' means the segment lights up) []
+        -- Segments mapping order: (g f e d c b a)
+        case active_hex is
+            when "0000" => seg <= "1000000"; 
+            when "0001" => seg <= "1111001"; 
+            when "0010" => seg <= "0100100"; 
+            when "0011" => seg <= "0110000"; 
+            when "0100" => seg <= "0011001"; 
+            when "0101" => seg <= "0010010"; 
+            when "0110" => seg <= "0000010"; 
+            when "0111" => seg <= "1111000"; 
+            when "1000" => seg <= "0000000"; 
+            when "1001" => seg <= "0010000"; 
+            when "1010" => seg <= "0001000"; 
+            when "1011" => seg <= "0000011"; 
+            when "1100" => seg <= "1000110"; 
+            when "1101" => seg <= "0100001"; 
+            when "1110" => seg <= "0000110"; 
+            when "1111" => seg <= "0001110"; 
+            when others => seg <= "1111111"; 
+        end case;
+    end process;
+end Behavioral;
